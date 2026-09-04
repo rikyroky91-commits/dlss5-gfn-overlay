@@ -99,6 +99,19 @@ bool Presenter::Create(GraphicsContext* graphics, const Options& options, std::s
         return false;
     }
     SetWindowLongPtrW(window_, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+
+    if (options.exclude_from_capture) {
+        // WDA_EXCLUDEFROMCAPTURE needs Windows 10 2004. On anything older the
+        // call fails and the desktop-duplication backend would feed back into
+        // itself, so say so rather than letting the user discover it as an
+        // infinite tunnel of overlays.
+        if (!SetWindowDisplayAffinity(window_, WDA_EXCLUDEFROMCAPTURE)) {
+            GFN_WARN(
+                "this build of Windows cannot hide the overlay from screen capture; with the "
+                "desktop-duplication backend the output will film itself");
+        }
+    }
+
     ShowWindow(window_, SW_SHOW);
     UpdateWindow(window_);
 

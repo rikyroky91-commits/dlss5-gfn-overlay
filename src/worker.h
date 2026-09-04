@@ -60,6 +60,10 @@ public:
     // Last lines the worker wrote to stderr, newest last.
     std::vector<std::string> DrainLog();
 
+    // Public because the stderr drain thread, which lives outside the class,
+    // writes into it.
+    struct LogBuffer;
+
 private:
     bool WriteAll(const void* data, size_t bytes, std::string* error);
     bool ReadAll(void* data, size_t bytes, std::string* error);
@@ -78,7 +82,6 @@ private:
     size_t motion_bytes_ = 0;
     std::vector<uint16_t> zero_motion_;
 
-    struct LogBuffer;
     LogBuffer* log_ = nullptr;
 };
 

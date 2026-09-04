@@ -48,7 +48,11 @@ private:
     std::atomic<bool> closed_{false};
     std::atomic<uint64_t> frames_captured_{0};
 
-    void OnFrame(ID3D11Texture2D* surface, uint32_t width, uint32_t height);
+    // `source_x` / `source_y` locate the region to take out of `surface`. The
+    // window-capture backend always passes 0,0; the desktop-duplication backend
+    // passes the window's position inside the monitor.
+    void OnFrame(ID3D11Texture2D* surface, uint32_t source_x, uint32_t source_y, uint32_t width,
+                 uint32_t height);
 };
 
 // Finds a top-level, visible window whose title contains `needle`

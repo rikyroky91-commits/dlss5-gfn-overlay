@@ -165,7 +165,7 @@ bool WindowCapture::Start(GraphicsContext* graphics, HWND window, bool capture_c
 
                 const auto content = frame.ContentSize();
                 if (content.Width > 0 && content.Height > 0) {
-                    OnFrame(surface.Get(), static_cast<uint32_t>(content.Width),
+                    OnFrame(surface.Get(), 0, 0, static_cast<uint32_t>(content.Width),
                             static_cast<uint32_t>(content.Height));
                 }
             });
@@ -208,7 +208,8 @@ void WindowCapture::Stop() {
     has_new_frame_ = false;
 }
 
-void WindowCapture::OnFrame(ID3D11Texture2D* surface, uint32_t width, uint32_t height) {
+void WindowCapture::OnFrame(ID3D11Texture2D* surface, uint32_t source_x, uint32_t source_y,
+                            uint32_t width, uint32_t height) {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (!latest_ || content_width_ != width || content_height_ != height) {
@@ -243,8 +244,10 @@ void WindowCapture::OnFrame(ID3D11Texture2D* surface, uint32_t width, uint32_t h
     // The frame pool surface can be larger than the content; copy only the part
     // that carries pixels.
     D3D11_BOX box{};
-    box.right = width;
-    box.bottom = height;
+    box.left = source_x;
+    box.top = source_y;
+    box.right = source_x + width;
+    box.bottom = source_y + height;
     box.back = 1;
 
     auto guard = graphics_->lock();

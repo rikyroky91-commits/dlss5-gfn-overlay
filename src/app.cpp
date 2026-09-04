@@ -1,4 +1,6 @@
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 
 #include "app.h"
@@ -108,8 +110,31 @@ bool NeuralInputSize(const Config& config, uint32_t width, uint32_t height,
 
 }  // namespace
 
+namespace {
+
+// Without per-monitor v2 awareness the window rectangles we read are in
+// virtualised coordinates while the captured surface is in physical pixels, and
+// the crop silently lands in the wrong place on any scaled display. Resolved at
+// runtime because older toolchains do not declare it and older Windows does not
+// export it.
+void MakeProcessDpiAware() {
+    using SetContext = BOOL(WINAPI*)(HANDLE);
+    if (HMODULE user32 = GetModuleHandleW(L"user32.dll")) {
+        // The void* hop keeps every toolchain quiet about casting FARPROC.
+        void* symbol = reinterpret_cast<void*>(GetProcAddress(user32,
+                                                              "SetProcessDpiAwarenessContext"));
+        if (auto set_context = reinterpret_cast<SetContext>(symbol)) {
+            // -4 is DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2.
+            if (set_context(reinterpret_cast<HANDLE>(static_cast<INT_PTR>(-4)))) return;
+        }
+    }
+    SetProcessDPIAware();
+}
+
+}  // namespace
+
 int Run(const Config& config, const RunOptions& options) {
-    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    MakeProcessDpiAware();
 
     std::string error;
     GraphicsContext graphics;
@@ -163,6 +188,7 @@ int Run(const Config& config, const RunOptions& options) {
     presenter_options.monitor_index = config.output_monitor;
     presenter_options.anchor = source_window;
     presenter_options.allow_tearing = config.allow_tearing;
+    presenter_options.exclude_from_capture = config.exclude_from_capture;
     Presenter presenter;
     if (!presenter.Create(&graphics, presenter_options, &error)) {
         GFN_ERROR("%s", error.c_str());

@@ -42,6 +42,7 @@ struct Config {
     int  output_monitor = -1;      // -1 = monitor holding the source window
     bool allow_tearing = true;
     bool start_enhanced = true;
+    bool exclude_from_capture = true;
 
     // Hotkeys, parsed from strings like "ctrl+alt+F1".
     std::wstring hotkey_toggle = L"alt+F1";

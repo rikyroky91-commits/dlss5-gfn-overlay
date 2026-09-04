@@ -19,6 +19,11 @@ public:
         int monitor_index = -1;      // -1 = the monitor holding `anchor`
         HWND anchor = nullptr;       // window whose monitor we follow
         bool allow_tearing = true;
+        // Hides the output window from every screen-capture path. Required with
+        // the desktop-duplication backend, which would otherwise film the
+        // overlay showing the overlay. It also hides the window from OBS and
+        // from screenshots.
+        bool exclude_from_capture = true;
         std::wstring title = L"DLSS 5 overlay";
     };
 

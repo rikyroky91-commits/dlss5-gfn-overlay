@@ -1,7 +1,11 @@
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 
+#if defined(GFN_CAPTURE_WGC)
 #include <winrt/base.h>
+#endif
 
 #include <cstdio>
 #include <cstdlib>
@@ -69,7 +73,11 @@ std::wstring DefaultConfigPath() {
 }  // namespace
 
 int main(int argc, char** argv) {
+#if defined(GFN_CAPTURE_WGC)
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
+#else
+    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+#endif
 
     std::wstring config_path = DefaultConfigPath();
     std::wstring window_override;

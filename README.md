@@ -24,6 +24,19 @@ Ultimate gira lato server sulle macchine RTX 5080.
 Questa app serve per tutto il resto: i giochi che DLSS 5 non ce l'hanno, e in
 generale qualunque finestra tu voglia migliorare.
 
+## Prima prova senza questa app
+
+Se ReShade riesce ad attaccarsi al client GeForce NOW, non ti serve niente di
+tutto questo. Metti il `dxgi.dll` di ReShade (build con supporto add-on) e
+`renodx-dlss5.addon64` accanto all'eseguibile del client: il Neural Rendering
+viene applicato direttamente alla sua swapchain, senza cattura, senza readback
+e senza un processo in mezzo. È la stessa cosa che si fa su OBS, ed è
+strettamente meglio di un overlay esterno perché non aggiunge latenza.
+
+Questa app serve per quando quella strada non passa: il client rifiuta di
+partire con una DLL proxy accanto, oppure preferisci non iniettare niente nel
+suo processo. Cattura da fuori e non tocca GeForce NOW.
+
 ## Come è fatto
 
 ```
@@ -114,13 +127,45 @@ Frame generation su Ampere non è disponibile: serve Ada o Blackwell.
 
 ## Compilare
 
+### Da Linux, senza Visual Studio
+
+```bash
+sudo apt install g++-mingw-w64-x86-64
+cmake -B build-mingw -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake -DCMAKE_BUILD_TYPE=Release
+cmake --build build-mingw
+```
+
+Esce un `dlss5-gfn-overlay.exe` che dipende solo da DLL di sistema Windows:
+niente runtime MinGW da distribuire accanto.
+
+### Con Visual Studio
+
 ```bash
 cmake -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ```
 
-Servono solo Windows SDK e MSVC: niente vcpkg, niente dipendenze esterne. Le
-intestazioni C++/WinRT arrivano dall'SDK.
+Servono solo Windows SDK e MSVC, niente vcpkg.
+
+### I due backend di cattura
+
+| | `wgc` | `dxgi` |
+| --- | --- | --- |
+| API | Windows Graphics Capture | Desktop Duplication |
+| Cattura | solo la finestra bersaglio | il monitor intero, poi ritaglia |
+| Segue la finestra fra monitor | sì | no |
+| Toolchain | solo MSVC (serve C++/WinRT) | qualunque, MinGW compreso |
+| Requisiti | Windows 10 1903 | Windows 8, ma vedi sotto |
+
+`auto` sceglie `wgc` con MSVC e `dxgi` altrimenti. Per forzare:
+`-DGFN_CAPTURE_BACKEND=dxgi`.
+
+Il backend `dxgi` duplica il monitor, quindi filmerebbe se stesso. La finestra
+di output si marca `WDA_EXCLUDEFROMCAPTURE` e sparisce da qualunque cattura
+schermo: serve Windows 10 2004, e sotto quella versione l'app avvisa invece di
+lasciarti scoprire il tunnel infinito di overlay da solo. Lo stesso flag rende
+l'overlay invisibile anche a OBS e agli screenshot; si spegne con
+`exclude_from_capture = false`, ma allora usa un monitor diverso per l'output.
 
 ## Usare
 
@@ -144,12 +189,18 @@ Opzioni utili:
 --log-level debug        più dettagli, compreso lo stderr del worker
 ```
 
-## Stato: scritto, non ancora compilato
+## Stato: compila e linka, mai eseguito
 
-Il codice è completo e coerente ma **non è mai stato compilato né eseguito**:
-è stato scritto su Linux, e serve una macchina Windows con RTX per la prima
-build. Aspettati errori di compilazione alla prima passata. Il protocollo del
-worker invece non è indovinato: è stato letto dai sorgenti di
+Compila pulito con `-Wall -Wextra` su MinGW-w64 13 e linka in un eseguibile
+Windows x86-64 autonomo. Non è **mai stato eseguito**: qui non c'è una macchina
+Windows, tantomeno una con una RTX e i runtime NVIDIA.
+
+Compilare ha già ripagato: ha trovato un `std::ifstream` aperto con una
+`std::wstring`, che è un'estensione MSVC e su libstdc++ non esiste, e una
+struct privata usata da fuori della classe. Due bug veri che una rilettura non
+aveva visto.
+
+Il protocollo del worker non è indovinato: è stato letto dai sorgenti di
 [dlss5-visual-enhancer][enhancer] e i `static_assert` sulle dimensioni delle
 struct falliscono a compile time se il layout non torna.
 
@@ -159,8 +210,9 @@ Quello che resta da verificare sull'hardware vero:
   conteggio noto. Se rifiuta il setup, `frame_count_hint` nel config accetta un
   numero grande.
 - quanto costa davvero un frame. È la domanda a cui risponde `--bench`.
-- se il crop di default va bene per il client GFN, o se serve tagliare della
-  chrome.
+- che Desktop Duplication non venga rifiutata dal client GeForce NOW se gira in
+  full screen esclusivo. In quel caso passa il client a finestra senza bordi.
+- se il crop di default va bene, o se serve tagliare della chrome.
 
 ## Rischi da conoscere
 

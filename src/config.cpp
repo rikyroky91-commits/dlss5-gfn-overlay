@@ -1,4 +1,6 @@
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 
 #include "config.h"
@@ -7,7 +9,6 @@
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
-#include <fstream>
 #include <map>
 #include <sstream>
 #include <string>
@@ -159,12 +160,49 @@ bool ValidateConfig(const Config& config, std::string* error) {
     return true;
 }
 
-bool LoadConfig(const std::wstring& path, Config* config, std::string* error) {
-    std::ifstream stream(path);
-    if (!stream) {
-        GFN_INFO("no config file at the requested path, using defaults");
-        return ValidateConfig(*config, error);
+namespace {
+
+// libstdc++ has no wide-character ifstream constructor, and narrowing the path
+// would break on a non-ASCII install directory. Going through CreateFileW keeps
+// both toolchains and every path working.
+bool ReadFileText(const std::wstring& path, std::string* text, bool* missing) {
+    *missing = false;
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        *missing = GetLastError() == ERROR_FILE_NOT_FOUND ||
+                   GetLastError() == ERROR_PATH_NOT_FOUND;
+        return false;
     }
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(file, &size) || size.QuadPart > (16 << 20)) {
+        CloseHandle(file);
+        return false;
+    }
+    text->resize(static_cast<size_t>(size.QuadPart));
+    DWORD read = 0;
+    const bool ok = text->empty() ||
+                    (ReadFile(file, text->data(), static_cast<DWORD>(text->size()), &read,
+                              nullptr) &&
+                     read == text->size());
+    CloseHandle(file);
+    return ok;
+}
+
+}  // namespace
+
+bool LoadConfig(const std::wstring& path, Config* config, std::string* error) {
+    std::string contents;
+    bool missing = false;
+    if (!ReadFileText(path, &contents, &missing)) {
+        if (missing) {
+            GFN_INFO("no config file at the requested path, using defaults");
+            return ValidateConfig(*config, error);
+        }
+        *error = "the config file exists but could not be read";
+        return false;
+    }
+    std::istringstream stream(contents);
 
     std::string line;
     int line_number = 0;
@@ -226,6 +264,8 @@ bool LoadConfig(const std::wstring& path, Config* config, std::string* error) {
             ok = ParseInt(value, &config->output_monitor);
         } else if (key == "allow_tearing") {
             ok = ParseBool(value, &config->allow_tearing);
+        } else if (key == "exclude_from_capture") {
+            ok = ParseBool(value, &config->exclude_from_capture);
         } else if (key == "start_enhanced") {
             ok = ParseBool(value, &config->start_enhanced);
         } else if (key == "hotkey_toggle") {
