@@ -24,6 +24,30 @@ Ultimate gira lato server sulle macchine RTX 5080.
 Questa app serve per tutto il resto: i giochi che DLSS 5 non ce l'hanno, e in
 generale qualunque finestra tu voglia migliorare.
 
+## Leggi prima questo
+
+Esiste gia' un'applicazione che fa quello per cui e' nato questo progetto, e lo
+fa molto meglio: il fork sperimentale di Magpie di SAOG0721,
+<https://github.com/SAOG0721/Magpie>.
+
+Magpie cattura una finestra qualsiasi, la scala e la presenta a schermo intero
+con un hotkey. Il fork ci aggiunge DLSSNR come effetto, insieme a DLSS SR, DLSS
+Frame Generation x2/x3/x4, XeSS, FSR e RTX Video VSR Ultra, con profili per
+applicazione e scelta del monitor di destinazione. Ha perfino la *Frame
+Guidance*: stima di movimento e profondita' con DirectML, e un componente
+TensorRT opzionale per la profondita'.
+
+Se cercavi un modo di attivare il DLSS 5 sul video di GeForce NOW, scarica
+quello. Questo repository resta come nota tecnica sul protocollo del feeder e
+sulla cattura via Desktop Duplication, non come qualcosa da usare.
+
+Una avvertenza sulle GPU: il pacchetto principale di quel fork include un
+`nvngx_dlssnr.dll` modificato dalla comunita' dichiarato compatibile con RTX 40
+e RTX 50, e le due varianti offerte sono `NVIDIA-Original` e
+`Community-RTX40-RTX50`. Nessuna delle due dichiara le RTX 30. Su Ampere,
+sostituisci `nvngx_dlssnr.dll` nella cartella di Magpie con la build che ti
+funziona gia': il fork prevede esplicitamente quella sostituzione.
+
 ## Prova prima le due strade che non richiedono questa app
 
 Il pacchetto ReShade del DLSS 5 (`dxgi.dll` di ReShade, `renodx-dlss5.addon64`,
