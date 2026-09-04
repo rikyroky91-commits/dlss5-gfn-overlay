@@ -1,0 +1,10 @@
+build/
+out/
+.vs/
+*.user
+config.ini
+logs/
+runtime/*.dll
+runtime/*.exe
+runtime/*.addon64
+runtime/ReShade.ini
