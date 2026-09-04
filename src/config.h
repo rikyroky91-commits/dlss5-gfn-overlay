@@ -17,7 +17,21 @@ struct NeuralSettings {
     int   dlss_model_preset = 0;         // 0 default, 10=J, 11=K, 12=L, 13=M
 };
 
+// How the enhanced frame is produced.
+enum class EnhanceMode {
+    // ReShade, loaded as a proxy dxgi.dll next to this executable, applies the
+    // DLSS 5 add-ons to our swapchain. Everything stays on the GPU: we only
+    // capture and present. This is what the ReShade add-on distributions ship.
+    ReShade,
+    // A separate DLSS feeder process receives each frame over a pipe and hands
+    // back the enhanced one. Costs a GPU->CPU->GPU round trip per frame, and
+    // needs a worker build that speaks the --video protocol.
+    Worker,
+};
+
 struct Config {
+    EnhanceMode enhance_mode = EnhanceMode::ReShade;
+
     // Source
     std::wstring window_title = L"GeForce NOW";  // substring match, case-insensitive
     int crop_left = 0;

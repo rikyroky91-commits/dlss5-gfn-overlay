@@ -131,6 +131,38 @@ void MakeProcessDpiAware() {
     SetProcessDPIAware();
 }
 
+// Reports whether a proxy dxgi.dll sits next to this executable and got loaded
+// instead of the system one, which is exactly how ReShade attaches. Without
+// this the user has no way to tell an enhanced frame from an untouched one.
+void ReportReShadeHook() {
+    wchar_t exe_path[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
+    std::wstring exe_dir(exe_path);
+    const size_t slash = exe_dir.find_last_of(L'\\');
+    exe_dir.resize(slash == std::wstring::npos ? 0 : slash);
+
+    const HMODULE dxgi = GetModuleHandleW(L"dxgi.dll");
+    if (!dxgi) {
+        GFN_WARN("dxgi.dll is not loaded yet; cannot tell whether ReShade attached");
+        return;
+    }
+    wchar_t dxgi_path[MAX_PATH] = {};
+    GetModuleFileNameW(dxgi, dxgi_path, MAX_PATH);
+    std::wstring loaded(dxgi_path);
+    loaded.resize(loaded.find_last_of(L'\\') == std::wstring::npos
+                      ? 0
+                      : loaded.find_last_of(L'\\'));
+
+    if (!exe_dir.empty() && _wcsicmp(loaded.c_str(), exe_dir.c_str()) == 0) {
+        GFN_INFO("a proxy dxgi.dll next to this executable is loaded: ReShade is attached");
+    } else {
+        GFN_WARN(
+            "the system dxgi.dll is loaded, so ReShade is NOT attached and nothing will be "
+            "enhanced. Copy dxgi.dll, renodx-dlss5.addon64, dlss5-feed.addon64, the ReShade "
+            "ini files and the NVIDIA runtimes next to this executable.");
+    }
+}
+
 }  // namespace
 
 int Run(const Config& config, const RunOptions& options) {
@@ -143,6 +175,7 @@ int Run(const Config& config, const RunOptions& options) {
         return 1;
     }
     GFN_INFO("graphics adapter: %s", graphics.adapter_description().c_str());
+    if (config.enhance_mode == EnhanceMode::ReShade) ReportReShadeHook();
 
     std::atomic<bool> stop{false};
     HWND source_window = WaitForWindow(config.window_title, &stop);
@@ -169,7 +202,7 @@ int Run(const Config& config, const RunOptions& options) {
         return 1;
     }
     GFN_INFO("source content is %ux%u", content_width, content_height);
-    {
+    if (config.enhance_mode == EnhanceMode::Worker) {
         uint32_t neural_width = 0;
         uint32_t neural_height = 0;
         uint32_t output_width = 0;
@@ -202,6 +235,14 @@ int Run(const Config& config, const RunOptions& options) {
         {kHotkeyStats, L"stats", &config.hotkey_stats},
     };
     for (const HotkeyBinding& binding : bindings) {
+        if (binding.id == kHotkeyToggle && config.enhance_mode == EnhanceMode::ReShade) {
+            // ReShade owns the effect toggle in this mode; ours would be a key
+            // that silently does nothing.
+            GFN_INFO(
+                "the enhancement toggle belongs to ReShade in this mode: use its own effect "
+                "key, configured in ReShade.ini");
+            continue;
+        }
         Hotkey parsed{};
         if (!ParseHotkey(*binding.text, &parsed)) {
             GFN_ERROR("could not parse the %ls hotkey from the config", binding.name);
@@ -213,13 +254,19 @@ int Run(const Config& config, const RunOptions& options) {
         }
     }
 
-    std::atomic<bool> enhanced{config.start_enhanced};
+    // In ReShade mode we never route a frame through a worker: we present the
+    // captured frame and the injected add-ons enhance our swapchain on the way
+    // out. That is the same code path as passthrough, so `enhanced` stays false
+    // and the neural thread is never started.
+    const bool use_worker = config.enhance_mode == EnhanceMode::Worker;
+    std::atomic<bool> enhanced{use_worker && config.start_enhanced};
     std::atomic<bool> worker_failed{false};
     FrameSlot slot;
     PipelineStats stats;
     std::mutex stats_mutex;
 
-    std::thread neural_thread([&] {
+    std::thread neural_thread;
+    if (use_worker) neural_thread = std::thread([&] {
         NeuralWorker worker;
         ReadbackTarget readback;
         uint32_t worker_input_width = 0;
@@ -412,7 +459,11 @@ int Run(const Config& config, const RunOptions& options) {
                 stats.frames_dropped += skipped;
                 stats.total_ms.Add(MillisSince(captured_at));
             }
-        } else {
+        } else if (capture.HasNewFrame()) {
+            // Direct path. In ReShade mode this is where the enhancement
+            // happens: we hand the captured frame to our own swapchain and the
+            // injected add-ons process it on the way to the screen, so nothing
+            // ever leaves the GPU. In worker mode this is plain passthrough.
             uint32_t width = 0;
             uint32_t height = 0;
             capture.ContentSize(&width, &height);
@@ -420,12 +471,13 @@ int Run(const Config& config, const RunOptions& options) {
             uint32_t cropped_height = 0;
             if (CroppedSize(config, width, height, &cropped_width, &cropped_height)) {
                 const SourceRect rect = CropRect(config, width, height);
+                const Clock::time_point captured_at = Clock::now();
                 const bool ok = presenter.PresentWith(
                     [&](ID3D11RenderTargetView* target, uint32_t target_width,
                         uint32_t target_height) {
                         const DestRect dest = DestRect::Fit(target_width, target_height,
                                                             cropped_width, cropped_height);
-                        capture.BlitLatest(target, dest, rect, /*consume=*/false);
+                        capture.BlitLatest(target, dest, rect, /*consume=*/true);
                     },
                     &error);
                 if (!ok) {
@@ -434,6 +486,9 @@ int Run(const Config& config, const RunOptions& options) {
                     break;
                 }
                 presented = true;
+                ++enhanced_frames_presented;
+                std::lock_guard<std::mutex> lock(stats_mutex);
+                stats.total_ms.Add(MillisSince(captured_at));
             }
         }
 

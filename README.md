@@ -24,62 +24,94 @@ Ultimate gira lato server sulle macchine RTX 5080.
 Questa app serve per tutto il resto: i giochi che DLSS 5 non ce l'hanno, e in
 generale qualunque finestra tu voglia migliorare.
 
-## Prima prova senza questa app
+## Prova prima le due strade che non richiedono questa app
 
-Se ReShade riesce ad attaccarsi al client GeForce NOW, non ti serve niente di
-tutto questo. Metti il `dxgi.dll` di ReShade (build con supporto add-on) e
-`renodx-dlss5.addon64` accanto all'eseguibile del client: il Neural Rendering
-viene applicato direttamente alla sua swapchain, senza cattura, senza readback
-e senza un processo in mezzo. È la stessa cosa che si fa su OBS, ed è
-strettamente meglio di un overlay esterno perché non aggiunge latenza.
+Il pacchetto ReShade del DLSS 5 (`dxgi.dll` di ReShade, `renodx-dlss5.addon64`,
+`dlss5-feed.addon64`, gli ini e i runtime NVIDIA) va messo **accanto
+all'eseguibile dell'applicazione da migliorare**: l'add-on gira dentro quel
+processo e lavora sulla sua swapchain. È così che funziona su OBS, che è
+esattamente lo stesso caso di GeForce NOW, cioè un'app D3D che disegna un
+video senza geometria.
 
-Questa app serve per quando quella strada non passa: il client rifiuta di
-partire con una DLL proxy accanto, oppure preferisci non iniettare niente nel
-suo processo. Cattura da fuori e non tocca GeForce NOW.
+1. **Copia il pacchetto accanto al client GeForce NOW.** Se parte, hai finito:
+   latenza aggiunta zero oltre al costo del pass neurale, nessuna copia, nessun
+   processo in mezzo. Non esiste niente di meglio di questo.
+2. **Se il client rifiuta di partire con una DLL proxy accanto**, prova
+   l'injector globale di ReShade, che aggancia il processo a runtime invece di
+   passare dall'ordine di ricerca delle DLL.
+3. **Se nemmeno quello passa**, questa app fa da ospite: cattura la finestra di
+   GeForce NOW, la presenta nella propria swapchain, e ReShade migliora quella.
+   Costa una copia sulla GPU in più, e niente altro.
+
+Il terzo caso è l'unico in cui serve compilare qualcosa.
 
 ## Come è fatto
 
+Due modalità, scelte con `enhance_mode`.
+
+### `reshade` (predefinita)
+
 ```
 finestra sorgente
-   │  Windows Graphics Capture (zero copie, resta sulla GPU)
+   │  cattura, resta sulla GPU
    ▼
-texture BGRA ──► pass shader: crop + BGRA→RGBA ──► render target RGBA8
-                                                        │
-                                                        ▼  readback su CPU
-                                              worker DLSS-NR (processo separato)
-                                              stdin:  header + RGBA + motion
-                                              stdout: header + RGBA migliorato
-                                                        │
-                                                        ▼  upload su GPU
-                                              swapchain borderless a schermo intero
+pass shader: crop + BGRA→RGBA ──► swapchain di questa app
+                                        │
+                                        ▼  ReShade + add-on DLSS 5,
+                                           agganciati alla nostra swapchain
+                                        ▼
+                                     schermo
 ```
 
-Tre thread: la callback di cattura tiene solo l'ultimo frame e butta i
-precedenti, un thread neurale fa il giro completo attraverso il worker, il
-thread principale presenta. **I frame vecchi si scartano invece di accodarli**:
-su uno stream cloud la latenza conta più della fluidità.
+Niente lascia mai la GPU. L'app fa solo due cose: cattura e presenta. Il costo
+aggiunto è una copia di texture più il pass neurale, che sarebbe da pagare
+comunque.
 
-Il worker gira in un processo separato di proposito. Quando la feature 18
-esplode con `0xC0000005` (succede su certe combinazioni driver/GPU) muore il
-worker, non l'overlay, e il thread neurale lo fa ripartire da solo.
+Per farla funzionare, il pacchetto ReShade va copiato **accanto a
+`dlss5-gfn-overlay.exe`**. All'avvio l'app controlla se un `dxgi.dll` proxy
+della propria cartella è stato caricato al posto di quello di sistema, e lo
+dice: senza quel controllo non avresti modo di distinguere un frame migliorato
+da uno intatto.
 
-## Il conto della latenza, prima che tu ci perda tempo
+In questa modalità l'accensione e lo spegnimento dell'effetto appartengono a
+ReShade, con il suo tasto configurato in `ReShade.ini`. L'app non registra un
+proprio toggle che non farebbe niente.
 
-È la cosa che decide se questo progetto ha senso sul tuo hardware, quindi
-mettiamola in chiaro subito.
+### `worker`
 
-A 1920×1080 ogni frame attraversa le pipe così:
+```
+cattura ──► render target RGBA8 ──► readback su CPU
+                                          │
+                                          ▼
+                              feeder DLSS in un processo separato
+                              stdin:  header + RGBA + motion
+                              stdout: header + RGBA migliorato
+                                          │
+                                          ▼  upload su GPU, poi swapchain
+```
 
-| direzione | dati | byte |
-| --- | --- | ---: |
-| verso il worker | RGBA8 | 8,3 MB |
-| verso il worker | campo motion float16 | 8,3 MB |
-| dal worker | RGBA8 migliorato | 8,3 MB |
+Serve un worker che parli il protocollo `--video`, cioè un `nvngx.dll` costruito
+dai sorgenti del feeder. I pacchetti ReShade non lo contengono: hanno l'add-on,
+che gira in-process. Questa modalità esiste per chi quel worker ce l'ha.
 
-Sono ~25 MB per frame, cioè **1,5 GB/s a 60 fps**, più il viaggio
-GPU→CPU→GPU. A 1440p sono 44 MB per frame. Il campo motion è la voce più
-stupida della lista: lo riempiamo di zeri, come fa il percorso immagini del
-worker, e lo mandiamo comunque perché il protocollo lo prevede.
+In entrambe le modalità la cattura tiene solo l'ultimo frame e butta i
+precedenti: su uno stream cloud la latenza conta più della fluidità. In modalità
+`worker` il feeder gira in un processo separato anche perché la feature 18 su
+certe combinazioni driver/GPU muore con `0xC0000005`, e così muore il worker
+invece dell'overlay.
+
+## Il conto della latenza
+
+In modalità `reshade` non c'è quasi niente da contare: una copia di texture
+sulla GPU e il pass neurale. Sopra ci resta la latenza dello stream cloud,
+30-60 ms, che c'era comunque.
+
+In modalità `worker` invece ogni frame attraversa le pipe, e a 1920×1080 sono
+8,3 MB di RGBA in ingresso, 8,3 MB di campo motion e 8,3 MB di RGBA in uscita:
+~25 MB per frame, cioè 1,5 GB/s a 60 fps, più il viaggio GPU→CPU→GPU. A 1440p
+sono 44 MB per frame. Il campo motion è la voce più stupida della lista, lo
+riempiamo di zeri e lo mandiamo lo stesso perché il protocollo lo prevede. È il
+motivo per cui `reshade` è la modalità predefinita.
 
 Non ti do una stima inventata di quanti millisecondi costa sul tuo PC. C'è
 `--bench` apposta:
@@ -89,12 +121,9 @@ dlss5-gfn-overlay.exe --bench 300
 ```
 
 Processa 300 frame e stampa mediana e 95° percentile di ogni stadio, più la
-latenza vera end-to-end dal momento della cattura a quello della presentazione.
-Se il totale supera i 16,6 ms non tieni i 60 fps, e il primo intervento da fare
-è sostituire le pipe con memoria condivisa (vedi *Prossimi passi*).
-
-Sopra tutto questo c'è già la latenza dello stream cloud, 30-60 ms. Su un
-single player si convive, su un competitivo no.
+latenza vera end-to-end dalla cattura alla presentazione. Se il totale supera i
+16,6 ms non tieni i 60 fps, e in modalità `worker` il primo intervento è
+abbassare `neural_input_scale`.
 
 ## Requisiti
 

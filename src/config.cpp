@@ -105,6 +105,11 @@ bool PerfQualityForFactor(float factor, int* perf_quality) {
 }
 
 bool ValidateConfig(const Config& config, std::string* error) {
+    if (config.enhance_mode == EnhanceMode::ReShade) {
+        // Nothing below applies: the add-ons read their own settings from the
+        // ReShade ini files, not from ours.
+        return true;
+    }
     int perf_quality = 0;
     if (!PerfQualityForFactor(config.upscale_factor, &perf_quality)) {
         *error = "upscale_factor must be one of 1.0, 1.5, 1.724, 2.0, 3.0";
@@ -221,7 +226,16 @@ bool LoadConfig(const std::wstring& path, Config* config, std::string* error) {
         const std::string value = Trim(trimmed.substr(separator + 1));
 
         bool ok = true;
-        if (key == "window_title") {
+        if (key == "enhance_mode") {
+            const std::string mode = Lower(value);
+            if (mode == "reshade") {
+                config->enhance_mode = EnhanceMode::ReShade;
+            } else if (mode == "worker") {
+                config->enhance_mode = EnhanceMode::Worker;
+            } else {
+                ok = false;
+            }
+        } else if (key == "window_title") {
             config->window_title = Widen(value);
             ok = !config->window_title.empty();
         } else if (key == "crop_left") {

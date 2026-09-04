@@ -28,6 +28,14 @@ public:
     // Size of the captured surface, or 0x0 before the first frame.
     void ContentSize(uint32_t* width, uint32_t* height) const;
 
+    // True when a frame has arrived that BlitLatest has not consumed yet.
+    // Checking before presenting avoids both a black frame and an unbounded
+    // present loop when the source is idle.
+    bool HasNewFrame() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return has_new_frame_ && latest_srv_;
+    }
+
     // True once the capture session has been closed by the system, which
     // happens when the captured window disappears.
     bool closed() const { return closed_.load(std::memory_order_acquire); }
