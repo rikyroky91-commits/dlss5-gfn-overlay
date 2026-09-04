@@ -204,9 +204,15 @@ bool NeuralWorker::Start(const Config& config, uint32_t input_width, uint32_t in
         return false;
     };
 
-    if (!CreatePipe(&stdin_read, &stdin_write, &inheritable, 0))
+    // A default-sized pipe buffer makes an 8 MB frame cross the boundary in
+    // 64 KB slices, one context switch each. Sizing the buffer to hold a whole
+    // frame is the cheapest win available while the worker only speaks pipes.
+    const DWORD frame_bytes =
+        static_cast<DWORD>(std::min<size_t>(64u << 20,
+                                            static_cast<size_t>(input_width) * input_height * 8));
+    if (!CreatePipe(&stdin_read, &stdin_write, &inheritable, frame_bytes))
         return fail("CreatePipe(stdin) failed: " + LastErrorText());
-    if (!CreatePipe(&stdout_read, &stdout_write, &inheritable, 0))
+    if (!CreatePipe(&stdout_read, &stdout_write, &inheritable, frame_bytes))
         return fail("CreatePipe(stdout) failed: " + LastErrorText());
     if (!CreatePipe(&stderr_read, &stderr_write, &inheritable, 0))
         return fail("CreatePipe(stderr) failed: " + LastErrorText());

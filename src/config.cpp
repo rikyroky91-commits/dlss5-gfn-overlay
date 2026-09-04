@@ -109,6 +109,10 @@ bool ValidateConfig(const Config& config, std::string* error) {
         *error = "upscale_factor must be one of 1.0, 1.5, 1.724, 2.0, 3.0";
         return false;
     }
+    if (!InRange(config.neural_input_scale, 0.25f, 1.0f)) {
+        *error = "neural_input_scale must be between 0.25 and 1.0";
+        return false;
+    }
     if (config.neural.preset < 0 || config.neural.preset > 3) {
         *error = "nr_preset must be between 0 and 3";
         return false;
@@ -192,6 +196,8 @@ bool LoadConfig(const std::wstring& path, Config* config, std::string* error) {
             ok = ParseInt(value, &config->crop_bottom);
         } else if (key == "capture_cursor") {
             ok = ParseBool(value, &config->capture_cursor);
+        } else if (key == "neural_input_scale") {
+            ok = ParseFloat(value, &config->neural_input_scale);
         } else if (key == "upscale_factor") {
             ok = ParseFloat(value, &config->upscale_factor);
         } else if (key == "nr_preset") {

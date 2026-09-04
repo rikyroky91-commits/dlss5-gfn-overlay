@@ -83,6 +83,29 @@ bool CroppedSize(const Config& config, uint32_t width, uint32_t height, uint32_t
     return true;
 }
 
+// Size the neural pass actually runs at. The capture blit does the downscale on
+// the GPU, so a lower scale costs nothing extra here and removes pixels from
+// both the readback and the round trip.
+bool NeuralInputSize(const Config& config, uint32_t width, uint32_t height,
+                     uint32_t* out_width, uint32_t* out_height) {
+    uint32_t cropped_width = 0;
+    uint32_t cropped_height = 0;
+    if (!CroppedSize(config, width, height, &cropped_width, &cropped_height)) return false;
+    if (config.neural_input_scale >= 0.999f) {
+        *out_width = cropped_width;
+        *out_height = cropped_height;
+        return true;
+    }
+    const uint32_t scaled_width =
+        NearestEven(static_cast<double>(cropped_width) * config.neural_input_scale);
+    const uint32_t scaled_height =
+        NearestEven(static_cast<double>(cropped_height) * config.neural_input_scale);
+    if (scaled_width < 64 || scaled_height < 64) return false;
+    *out_width = scaled_width;
+    *out_height = scaled_height;
+    return true;
+}
+
 }  // namespace
 
 int Run(const Config& config, const RunOptions& options) {
@@ -121,6 +144,19 @@ int Run(const Config& config, const RunOptions& options) {
         return 1;
     }
     GFN_INFO("source content is %ux%u", content_width, content_height);
+    {
+        uint32_t neural_width = 0;
+        uint32_t neural_height = 0;
+        uint32_t output_width = 0;
+        uint32_t output_height = 0;
+        if (NeuralInputSize(config, content_width, content_height, &neural_width,
+                            &neural_height) &&
+            ResolveOutputSize(neural_width, neural_height, config.upscale_factor, &output_width,
+                              &output_height)) {
+            GFN_INFO("neural pass runs %ux%u -> %ux%u", neural_width, neural_height,
+                     output_width, output_height);
+        }
+    }
 
     Presenter::Options presenter_options;
     presenter_options.fullscreen = config.fullscreen;
@@ -189,8 +225,8 @@ int Run(const Config& config, const RunOptions& options) {
             capture.ContentSize(&width, &height);
             uint32_t input_width = 0;
             uint32_t input_height = 0;
-            if (!CroppedSize(config, width, height, &input_width, &input_height)) {
-                GFN_ERROR("the crop leaves nothing to process at %ux%u", width, height);
+            if (!NeuralInputSize(config, width, height, &input_width, &input_height)) {
+                GFN_ERROR("the crop and scale leave nothing to process at %ux%u", width, height);
                 enhanced.store(false, std::memory_order_release);
                 worker_failed.store(true, std::memory_order_release);
                 continue;

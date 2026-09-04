@@ -27,6 +27,11 @@ struct Config {
     bool capture_cursor = false;
 
     // Neural Rendering
+    // Fraction of the cropped source the neural pass actually runs on. The
+    // runtime's cost scales with pixel count, so this is the main lever when a
+    // GPU cannot hold the frame budget: 0.667 with upscale_factor 1.5 sends
+    // 720p through the network and gets 1080p back.
+    float neural_input_scale = 1.0f;  // 0.25 .. 1.0
     float upscale_factor = 1.0f;   // 1.0 DLAA, 1.5, 1.724, 2.0, 3.0
     NeuralSettings neural;
     int warmup_frames = 0;

@@ -87,10 +87,30 @@ single player si convive, su un competitivo no.
 
 - Windows 10 1903 o successivo (Windows 11 per togliere il bordo giallo della
   cattura), 64 bit, Direct3D 11.
-- GPU NVIDIA RTX. Ampere/Ada/Blackwell secondo il worker; su RTX 30 il percorso
-  è sperimentale e nettamente più lento.
+- GPU NVIDIA RTX. Ada e Blackwell (RTX 40/50) sono i bersagli principali del
+  runtime.
 - I file di runtime NVIDIA, ReShade e RenoDX, che **non sono in questo repo**.
   Vedi [`runtime/BINARIES.md`](runtime/BINARIES.md).
+
+### Su RTX 30 (Ampere)
+
+Il Neural Rendering su Ampere gira sul percorso sperimentale ed è nettamente
+più lento che su RTX 40/50. Funziona, ma il budget per frame è il problema, e
+la configurazione di default quasi certamente non tiene i 60 fps.
+
+Parti da qui invece che dai default:
+
+```ini
+neural_input_scale = 0.667
+upscale_factor = 1.5
+```
+
+Il runtime lavora su 1280x720 e restituisce 1920x1080: meno della metà dei
+pixel da elaborare rispetto al DLAA nativo, e altrettanti byte in meno da far
+passare nelle pipe. Poi misura con `--bench 300` e alza o abbassa
+`neural_input_scale` finchè il totale non sta sotto i 16,6 ms.
+
+Frame generation su Ampere non è disponibile: serve Ada o Blackwell.
 
 ## Compilare
 
@@ -156,16 +176,24 @@ cattura restituisce nero. È un limite di Windows, non un bug qui.
 
 ## Prossimi passi, in ordine di resa
 
-1. **Memoria condivisa al posto delle pipe.** Toglie i due terzi del traffico e
-   probabilmente la maggior parte della latenza aggiunta. È l'unica modifica che
-   può cambiare il verdetto di `--bench`.
-2. **Non mandare il campo motion quando è tutto zero**, se il worker lo tollera.
-   8,3 MB per frame gratis.
-3. **Optical flow vero** (DIS su CPU o NVOFA sulla GPU) al posto degli zeri, se
-   si vede instabilità temporale fra un frame e l'altro.
-4. **Frame generation** con `nvngx_dlssg.dll`, che il worker di riferimento
-   guida già. Aggiunge un frame di buffer: su cloud gaming va misurato prima di
-   deciderlo.
+1. **Abbassare `neural_input_scale`.** È la leva più forte e l'unica che
+   agisce su tutti i costi insieme: meno pixel da elaborare, meno byte da
+   leggere dalla GPU, meno byte nelle pipe. Con `neural_input_scale = 0.667` e
+   `upscale_factor = 1.5` il runtime lavora su 720p e restituisce 1080p.
+2. **Sovrapporre cattura e round trip.** Oggi il thread neurale fa cattura,
+   readback e giro sul worker in sequenza. Facendo il readback del frame
+   successivo mentre il worker lavora sul precedente si nascondono i 2-5 ms
+   della cattura dietro i millisecondi del pass neurale. Guadagno reale ma
+   modesto: vale la pena solo dopo che `--bench` dice che il resto è a posto.
+3. **Frame generation** con `nvngx_dlssg.dll`. Non è disponibile su Ampere:
+   serve Ada o Blackwell. Aggiunge comunque un frame di buffer, quindi su cloud
+   gaming va misurato prima di deciderlo.
+
+Due ottimizzazioni che sembrano ovvie e non sono possibili: **memoria condivisa
+al posto delle pipe** e **non mandare il campo motion quando è tutto zero**.
+Entrambe richiedono di cambiare il protocollo del worker, e del worker esiste
+solo il binario: i sorgenti nativi del feeder non sono pubblicati. Restano sul
+tavolo solo se scrivi un feeder tuo.
 
 ## Licenza
 
