@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cwctype>
+#include <memory>
 #include <vector>
 
 #include "log.h"

@@ -41,7 +41,7 @@ target_link_libraries(dlss5-gfn-overlay PRIVATE
 )
 
 if(MSVC)
-    target_compile_options(dlss5-gfn-overlay PRIVATE /W4 /permissive- /await:strict /EHsc)
+    target_compile_options(dlss5-gfn-overlay PRIVATE /W4 /permissive- /EHsc)
     # C++/WinRT headers need a recent enough Windows SDK; 10.0.19041 carries
     # IsBorderRequired and CreateFreeThreaded.
     set_property(TARGET dlss5-gfn-overlay PROPERTY VS_GLOBAL_WindowsTargetPlatformVersion "10.0.19041.0")

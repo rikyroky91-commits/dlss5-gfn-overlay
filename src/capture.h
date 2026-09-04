@@ -1,7 +1,6 @@
 #pragma once
 
 #include <atomic>
-#include <functional>
 #include <mutex>
 #include <string>
 
@@ -50,7 +49,6 @@ private:
     std::atomic<uint64_t> frames_captured_{0};
 
     void OnFrame(ID3D11Texture2D* surface, uint32_t width, uint32_t height);
-    friend struct Impl;
 };
 
 // Finds a top-level, visible window whose title contains `needle`
